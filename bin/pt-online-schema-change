@@ -8359,15 +8359,23 @@ sub main {
    my $sys_load;       # MySQLStatusWaiter object
    my $sys_load_pr;    # Progress for MySQLStatusWaiter object
 
+   my $ms = new MasterSlave(
+      OptionParser => $o,
+      DSNParser    => $dp,
+      Quoter       => $q,
+   );
+
+   my $is_row_slave = is_row_slave(ms => $ms, dbh => $cxn->dbh());
+   PTDEBUG && _d("is_row_slave $is_row_slave");
+   PTDEBUG && _d($o->get('force-slave-run'));
+   if ($is_row_slave && !$o->get('force-slave-run')) {
+       die ("Target server is a slave is a row based replication.\nCheck the documentation for --force-slave-run");
+   }
+
    if ( $o->get('execute') ) {
       # #####################################################################
       # Find and connect to slaves.
       # #####################################################################
-      my $ms = new MasterSlave(
-         OptionParser => $o,
-         DSNParser    => $dp,
-         Quoter       => $q,
-      );
 
       $slaves = $ms->get_slaves(
          dbh          => $cxn->dbh(),
@@ -9742,6 +9750,24 @@ sub main {
 # ############################################################################
 # Subroutines.
 # ############################################################################
+
+sub is_row_slave {
+   my (%args) = @_;
+   my $ms = $args{ms};
+   my $dbh = $args{dbh};
+
+   PTDEBUG && _d("Checking if DSN is a slave in a row based replication");
+   if ($ms->get_slave_status($dbh)) {
+       PTDEBUG && _d("It is a slave. Getting binlog_format");
+       my $sql = 'select @@GLOBAL.binlog_format';
+       my $rows = $dbh->selectrow_arrayref($sql);
+       PTDEBUG && _d("binlog_format: ".$rows->[0]);
+       if ($rows && uc($rows->[0]) ne 'STATEMENT') {
+           return 1;
+       }
+   }
+   return 0;
+}
 
 sub validate_tries {
    my ($o) = @_;
@@ -11284,6 +11310,11 @@ unless you specify L<"--alter-foreign-keys-method">.
 
 The tool cannot alter MyISAM tables on L<"Percona XtraDB Cluster"> nodes.
 
+=item *
+
+The tool refuses to operate on row based replication slaves unless you
+specify 
+
 =back
 
 =head1 Percona XtraDB Cluster
@@ -11771,6 +11802,11 @@ documentation, then do not specify this option.
 =item --force
 
 This options bypasses confirmation in case of using alter-foreign-keys-method = none , which might break foreign key constraints.
+
+=item --force-slave-run
+
+pt-online-schema-change won't run on slave servers on a row based replication unless you specify this option.
+Before enabling it, please read L<"http://dev.mysql.com/doc/refman/5.5/en/faqs-triggers.html#faq-mysql-how-triggers-master-slave">
 
 =item --help
 

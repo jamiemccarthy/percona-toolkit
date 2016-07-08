@@ -882,6 +882,26 @@ test_alter_table(
          qw(--execute --slave-user slave_user --slave-password slave_password), '--alter', 'ADD COLUMN bar INT',
    ],
 );
+
+
+# Test BUG-1221372 https://bugs.launchpad.net/percona-toolkit/+bug/1221372
+$sb->load_file('master', "$sample/basic_no_fks_innodb.sql");
+
+$sb->do_as_root("slave1", q/SET GLOBAL binlog_format='ROW'/);
+my $slave_dsn    = "h=127.1,P=12346,u=msandbox,p=msandbox";
+
+($output, $exit) = full_output(
+   sub { pt_online_schema_change::main(@args, "$slave_dsn,D=pt_osc,t=t",
+      '--execute', '--alter', 'drop column id') }
+);
+
+like(
+   $output,
+   qr/--force-slave-run/,
+   "Doesn't run without --force-slave-run (bug 1221372)"
+) or diag($output);
+
+
 # #############################################################################
 # Done.
 # #############################################################################
